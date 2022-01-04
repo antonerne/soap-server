@@ -2,7 +2,8 @@
 import express, {Request, Response} from 'express';
 import { ObjectId } from 'mongodb';
 import { collections } from '../services/database.service';
-import { Authorization, IUser, User } from 'soap-model'
+import { Authorization, IUser, LoginResponse, User } from 'soap-model'
+import e from 'express';
 
 // Global Config
 export const userRouter = express.Router();
@@ -54,7 +55,11 @@ userRouter.get("/:id", async(req: Request, res: Response) => {
 userRouter.post("/", async(req: Request, res: Response) => {
     try {
         const tuser = req.body as IUser
-        const newuser: User = new User(tuser);
+        const newuser: User = new User();
+        await newuser.newUser(tuser.email, tuser.user_name.first, 
+            (tuser.user_name.middle) ? tuser.user_name.middle : "" , 
+            tuser.user_name.last, 
+            (tuser.creds?.password) ? tuser.creds.password : "TemporaryPassword");
 
         const query = { email: tuser.email }
         const ouser = (await collections.users?.findOne(query)) as IUser;
@@ -88,9 +93,13 @@ userRouter.post("/login/", async(req: Request, res: Response) => {
         const user = new User(tuser);
 
         if (user) {
-            if (user.creds?.Authenticate(authReq.password)) {
-                
+            let login = await user.creds?.Authenticate(authReq.password);
+            const result = await collections.users?.updateOne(query, { $set: user });
+            if (login) {
+                res.status(login.status).send(login.message);
+                return
             }
+            res.status(401).send("Unknown problems");
         }
     } catch (error) {
         if (error instanceof Error) {
@@ -101,6 +110,68 @@ userRouter.post("/login/", async(req: Request, res: Response) => {
     }
 });
 
-// Put - update the user, to include password
+// Put - update the user, including the possibility of password change
+userRouter.put("/:id", async(req: Request, res: Response) => {
+    const id = req?.params?.id;
+
+    try {
+        const uUser: IUser = req.body as IUser;
+        const query = { _id: new ObjectId(id) };
+        const tuser = (await collections.users?.findOne(query)) as IUser;
+        const user = new User(tuser);
+
+        user.email = uUser.email;
+        user.user_name.first = uUser.user_name.first;
+        user.user_name.middle = uUser.user_name.middle;
+        user.user_name.last = uUser.user_name.last;
+
+        if (uUser.creds && uUser.creds?.password !== "") {
+            user.creds?.SetPassword(uUser.creds?.password);
+        }
+        const result = await collections.users?.updateOne(query, { $set: user });
+
+        result 
+            ? res.status(200).send(`Successfully update user with id ${id}`)
+            : res.status(304).send(`User with id: ${id} not updated`);
+    } catch (error) {
+        if (error instanceof Error) {
+            res.status(400).send(error.message);
+            return
+        }
+        res.status(400).send(error);
+    }
+});
 
 // Delete - delete a user, along with their respective soap entries
+userRouter.delete("/:id", async(req: Request, res: Response) => {
+    const id = req?.params?.id;
+
+    try {
+        const query = { _id: new ObjectId(id)};
+        const result = await collections.users?.deleteOne(query);
+
+        if (result && result.deletedCount) {
+            const entryquery = { user_id: new ObjectId(id) };
+            const result2 = await collections.entries?.deleteMany(entryquery);
+            if (result2 && result2.deletedCount) {
+                res.status(200).send(`Deleted User and associated entries: 
+                    ${result2.deletedCount} entries`);
+            } else if (!result2) {
+                res.status(400).send(`Deleted User, but failed to delete any
+                    associated entries.`);
+            } else if (!result2.deletedCount) {
+                res.status(404).send(`Deleted User, but no entries existed`);
+            }
+        } else if (!result) {
+            res.status(400).send(`Failed to delete user with id: ${id}`);
+        } else if (!result.deletedCount) {
+            res.status(404).send(`User with id ${id} does not exist.`);
+        }
+    } catch (error) {
+        if (error instanceof Error) {
+            res.status(400).send(error.message);
+            return
+        }
+        res.status(400).send(error);
+    }
+});

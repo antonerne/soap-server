@@ -7,7 +7,7 @@ export const collections: { entries?: mongo.Collection,
     users?: mongo.Collection, readings?: mongo.Collection } = {}
 
 // Initialize Connection
-export async function connectToDatabase() {
+export async function connectToDatabase(): Promise<number> {
     dotenv.config();
 
     const uri = `mongodb://${process.env.MONGO_USER}:${process.env.MONGO_PASSWD}`
@@ -28,4 +28,9 @@ export async function connectToDatabase() {
     const readingsCollection: mongo.Collection = db.collection("readings");
 
     console.log(`Successfully connected to database: ${db.databaseName}`);
+
+    if (process.env.SERVER_PORT) {
+        return Number(process.env.SERVER_PORT);
+    } 
+    return 3000;
 }
