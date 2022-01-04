@@ -20,7 +20,7 @@
     "dotenv": "^10.0.0",
     "express": "^4.17.2",
     "mongodb": "^4.2.2",
-    "soap-model": "^1.1.4",
+    "soap-model": "^1.2.0",
     "typescript": "^4.5.4"
   },
   "devDependencies": {
