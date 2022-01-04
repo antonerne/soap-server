@@ -2,7 +2,7 @@
 import express, {Request, Response} from 'express';
 import { ObjectId } from 'mongodb';
 import { collections } from '../services/database.service';
-import { IUser, User } from 'soap-model'
+import { Authorization, IUser, User } from 'soap-model'
 
 // Global Config
 export const userRouter = express.Router();
@@ -81,7 +81,17 @@ userRouter.post("/", async(req: Request, res: Response) => {
 // 2)  Authenticate user
 userRouter.post("/login/", async(req: Request, res: Response) => {
     try {
+        const authReq = req.body as Authorization
 
+        const query = { email: authReq.email };
+        const tuser = (await collections.users?.findOne(query)) as IUser;
+        const user = new User(tuser);
+
+        if (user) {
+            if (user.creds?.Authenticate(authReq.password)) {
+                
+            }
+        }
     } catch (error) {
         if (error instanceof Error) {
             res.status(500).send(error.message);
