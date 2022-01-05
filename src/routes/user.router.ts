@@ -2,8 +2,9 @@
 import express, {Request, Response} from 'express';
 import { ObjectId } from 'mongodb';
 import { collections } from '../services/database.service';
-import { Authorization, IUser, LoginResponse, User } from 'soap-model'
-import e from 'express';
+import { Authorization, IUser, LoginResponse, User, Token } from 'soap-model';
+import * as jwt from 'jsonwebtoken';
+import { verifyToken as auth } from '../middleware/auth';
 
 // Global Config
 export const userRouter = express.Router();
@@ -11,7 +12,7 @@ userRouter.use(express.json());
 
 // Get - retries a single user information
 // Get all users
-userRouter.get("/", async(req: Request, res: Response) => {
+userRouter.get("/", auth, async(req: Request, res: Response) => {
     try {
         if (collections.users) {
             const users = (await collections.users.find({}).toArray()) as IUser[];
@@ -29,7 +30,7 @@ userRouter.get("/", async(req: Request, res: Response) => {
 });
 
 // get user from id
-userRouter.get("/:id", async(req: Request, res: Response) => {
+userRouter.get("/:id", auth, async(req: Request, res: Response) => {
     const id = req.params.id;
 
     try {
@@ -90,12 +91,35 @@ userRouter.post("/login/", async(req: Request, res: Response) => {
 
         const query = { email: authReq.email };
         const tuser = (await collections.users?.findOne(query)) as IUser;
-        const user = new User(tuser);
+        const user: User = new User(tuser);
 
         if (user) {
             let login = await user.creds?.Authenticate(authReq.password);
             const result = await collections.users?.updateOne(query, { $set: user });
             if (login) {
+                if (login.status === 200) {
+                    const { JWT_SECRET } = process.env;
+                    let jwtsecret = "";
+                    if (JWT_SECRET) {
+                        jwtsecret = JWT_SECRET;
+                    }
+                    let oToken: Token = {
+                        userid: (user && user._id) ? user._id.toString() : "",
+                        email: authReq.email
+                    };
+                    
+                    const token = jwt.sign(
+                        oToken,
+                        jwtsecret,
+                        {
+                            expiresIn: "2h",
+                        }
+                    );
+
+                    user.token = token;
+
+                    res.status(200).json(user);
+                }
                 res.status(login.status).send(login.message);
                 return
             }
@@ -111,7 +135,7 @@ userRouter.post("/login/", async(req: Request, res: Response) => {
 });
 
 // Put - update the user, including the possibility of password change
-userRouter.put("/:id", async(req: Request, res: Response) => {
+userRouter.put("/:id", auth, async(req: Request, res: Response) => {
     const id = req?.params?.id;
 
     try {
@@ -143,7 +167,7 @@ userRouter.put("/:id", async(req: Request, res: Response) => {
 });
 
 // Delete - delete a user, along with their respective soap entries
-userRouter.delete("/:id", async(req: Request, res: Response) => {
+userRouter.delete("/:id", auth, async(req: Request, res: Response) => {
     const id = req?.params?.id;
 
     try {
