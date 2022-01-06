@@ -14,10 +14,10 @@ export const verifyToken = (req: Request, res: Response, next: NextFunction) => 
     try {
         const jwtkey = (process.env.JWT_SECRET) ? process.env.JWT_SECRET : "";
         const decoded  = jwt.verify(token, jwtkey) as Token;
-        console.log(decoded);
         res.setHeader('userid', decoded.userid);
         res.setHeader('email', decoded.email);
     } catch (err) {
-        console.log(err);
+        return res.status(401).send("Invalid token");
     }
+    return next();
 }

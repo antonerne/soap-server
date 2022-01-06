@@ -5,6 +5,8 @@ import { collections } from '../services/database.service';
 import { Authorization, IUser, LoginResponse, User, Token } from 'soap-model';
 import * as jwt from 'jsonwebtoken';
 import { verifyToken as auth } from '../middleware/auth';
+import { ITokenMail } from '../model/mail';
+import { sendMail } from '../services/mailer.service';
 
 // Global Config
 export const userRouter = express.Router();
@@ -49,7 +51,9 @@ userRouter.get("/:id", auth, async(req: Request, res: Response) => {
         }
         res.status(500).send(error);
     }
-})
+});
+
+
 
 // Post - two functions
 // 1)  Create a new user
@@ -68,6 +72,31 @@ userRouter.post("/", async(req: Request, res: Response) => {
         if (!ouser) {
             const result = await collections.users?.insertOne(newuser);
 
+            if (result && newuser && newuser.creds) {
+                newuser._id = result.insertedId;
+                const chg = { _id: result.insertedId}
+                const verifyToken: string = newuser.creds?.getToken();
+                if (verifyToken) {
+                    let now = new Date();
+                    let expires = new Date(now.getTime() + (60 * 60 * 1000));
+                    newuser.creds.verification_token = verifyToken;
+                    await collections.users?.updateOne(chg, { $set: newuser });
+                    const mail: ITokenMail = {
+                        sendTo: tuser.email,
+                        created: now,
+                        expires: expires,
+                        purpose: "Email Verification",
+                        token: verifyToken
+                    };
+                    let info = await sendMail(mail);
+
+                    console.log(`Message send: ${info.messageId}`);
+                    console.log(info);
+                }
+                res.status(202).send(`Successfully create new user with id: ${result.insertedId}`)
+            } else {
+                res.status(500).send("Failed to create a new user");
+            }
             result 
                 ? res.status(202).send(`Successfully create new user with id: ${result.insertedId}`)
                 : res.status(500).send("Failed to create a new user");
@@ -95,7 +124,7 @@ userRouter.post("/login/", async(req: Request, res: Response) => {
 
         if (user) {
             let login = await user.creds?.Authenticate(authReq.password);
-            const result = await collections.users?.updateOne(query, { $set: user });
+            await collections.users?.updateOne(query, { $set: user });
             if (login) {
                 if (login.status === 200) {
                     const { JWT_SECRET } = process.env;
@@ -119,6 +148,29 @@ userRouter.post("/login/", async(req: Request, res: Response) => {
                     user.token = token;
 
                     res.status(200).json(user);
+                    return
+                } else if (login.message.toLowerCase() === "account not verified") {
+                    const chg = { _id: user._id}
+                    if (user.creds) {
+                        const verifyToken: string = user.creds?.getToken();
+                        if (verifyToken) {
+                            let now = new Date();
+                            let expires = new Date(now.getTime() + (60 * 60 * 1000));
+                            user.creds.verification_token = verifyToken;
+                            await collections.users?.updateOne(chg, { $set: newuser });
+                            const mail: ITokenMail = {
+                                sendTo: tuser.email,
+                                created: now,
+                                expires: expires,
+                                purpose: "Email Verification",
+                                token: verifyToken
+                            };
+                            let info = await sendMail(mail);
+        
+                            console.log(`Message send: ${info.messageId}`);
+                            console.log(info);
+                        }
+                    }
                 }
                 res.status(login.status).send(login.message);
                 return
