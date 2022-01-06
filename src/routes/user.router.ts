@@ -157,7 +157,7 @@ userRouter.post("/login/", async(req: Request, res: Response) => {
                             let now = new Date();
                             let expires = new Date(now.getTime() + (60 * 60 * 1000));
                             user.creds.verification_token = verifyToken;
-                            await collections.users?.updateOne(chg, { $set: newuser });
+                            await collections.users?.updateOne(chg, { $set: user });
                             const mail: ITokenMail = {
                                 sendTo: tuser.email,
                                 created: now,
@@ -183,6 +183,31 @@ userRouter.post("/login/", async(req: Request, res: Response) => {
             return
         }
         res.status(500).send(error);
+    }
+});
+
+// 3) Verify User email
+userRouter.post("/verify/", async(req: Request, res: Response) => {
+    try {
+        const auth: Authorization = req.body as Authorization;
+        const query = { email: auth.email};
+        const tuser = (await collections.users?.findOne(query)) as IUser;
+        const user: User = new User(tuser);
+
+        if (user.creds?.Verify(auth.password)) {
+            const result = await collections.users?.updateOne(query, { $set: user});
+            if (result && result.modifiedCount) {
+                res.status(200).send("Account Verified");
+                return;
+            }
+        }
+        res.status(500).send("Account failed verification");
+    } catch (error) {
+        if (error instanceof Error) {
+            res.status(400).send(error.message);
+            return
+        }
+        res.status(400).send(error);
     }
 });
 
