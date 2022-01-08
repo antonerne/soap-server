@@ -2,7 +2,7 @@
 import express, {Request, Response} from 'express';
 import { ObjectId } from 'mongodb';
 import { collections } from '../services/database.service';
-import { Authorization, IUser, LoginResponse, User, Token } from 'soap-model';
+import { Authorization, IUser, LoginResponse, User, Token, ForgotPassword } from 'soap-model';
 import * as jwt from 'jsonwebtoken';
 import { verifyToken as auth } from '../middleware/auth';
 import { ITokenMail } from '../model/mail';
@@ -33,17 +33,22 @@ userRouter.get("/", auth, async(req: Request, res: Response) => {
 
 // get user from id
 userRouter.get("/:id", auth, async(req: Request, res: Response) => {
-    const id = req.params.id;
+    let uid: string = ""
+    if (!req.params.id || req.params.id === "") {
+        uid = res.getHeader("userid") as string;
+    } else {
+        uid = req.params.id;
+    }
 
     try {
-        const query = { _id: new ObjectId(id)};
+        const query = { _id: new ObjectId(uid)};
         
         if (collections.users) {
             const user = (await collections.users.findOne(query)) as IUser;
             res.status(200).send(user);
             return
         }
-        res.status(404).send(`User: ${id} not found in database!`);
+        res.status(404).send(`User: ${uid} not found in database!`);
     } catch (error) {
         if (error instanceof Error) {
             res.status(500).send(error.message);
@@ -80,6 +85,7 @@ userRouter.post("/", async(req: Request, res: Response) => {
                     let now = new Date();
                     let expires = new Date(now.getTime() + (60 * 60 * 1000));
                     newuser.creds.verification_token = verifyToken;
+                    newuser.creds.tokenExpires = expires;
                     await collections.users?.updateOne(chg, { $set: newuser });
                     const mail: ITokenMail = {
                         sendTo: tuser.email,
@@ -157,6 +163,7 @@ userRouter.post("/login/", async(req: Request, res: Response) => {
                             let now = new Date();
                             let expires = new Date(now.getTime() + (60 * 60 * 1000));
                             user.creds.verification_token = verifyToken;
+                            user.creds.tokenExpires = expires;
                             await collections.users?.updateOne(chg, { $set: user });
                             const mail: ITokenMail = {
                                 sendTo: tuser.email,
@@ -202,6 +209,76 @@ userRouter.post("/verify/", async(req: Request, res: Response) => {
             }
         }
         res.status(500).send("Account failed verification");
+    } catch (error) {
+        if (error instanceof Error) {
+            res.status(400).send(error.message);
+            return
+        }
+        res.status(400).send(error);
+    }
+});
+
+// Post - user forgot his/her password, so this process will provide the 
+// initial step by sending an email with the reset token to the user.
+userRouter.post("/forgot/", async(req: Request, res: Response) => {
+    try {
+        const chg: Authorization = req.body as Authorization;
+        const query = { email: chg.email };
+        const tuser = (await collections.users?.findOne(query)) as IUser;
+        const user: User = new User(tuser);
+
+        if (user && user.creds) {
+            const token = user.creds.getToken();
+            user.creds.reset_token = token;
+            let now = new Date();
+            let expires = new Date(now.getTime() + (60 * 60 * 1000));
+            user.creds.tokenExpires = expires;
+            await collections.users?.updateOne(chg, { $set: user });
+            const mail: ITokenMail = {
+                sendTo: tuser.email,
+                created: now,
+                expires: expires,
+                purpose: "Forgot Password Token",
+                token: token
+            };
+            let info = await sendMail(mail);
+
+            console.log(`Message send: ${info.messageId}`);
+            console.log(info);
+
+            res.status(200).send("Token sent");
+            return;
+        }
+        res.status(500).send("forgot password token failure");
+    } catch (error) {
+        if (error instanceof Error) {
+            res.status(400).send(error.message);
+            return
+        }
+        res.status(400).send(error);
+    }
+});
+
+// Put - forgot - changes user's password if the data passed (email, 
+// new password and authentication token) matches the data in the database
+// plus the token hasn't expired.
+userRouter.put("/forgot/", async(req: Request, res: Response) => {
+    try {
+        const chg: ForgotPassword = req.body as ForgotPassword;
+        const query = { email: chg.email };
+        const tuser = (await collections.users?.findOne(query)) as IUser;
+        const user: User = new User(tuser);
+
+        if (user && user.creds) {
+            let answer: boolean = await user.creds.ResetPassword(chg.token, 
+                chg.password);
+            if (answer) {
+                await collections.users?.updateOne(query, { $set: user });
+                res.status(200).send("Password Changed");
+                return;
+            }
+        }
+        res.status(500).send("Password Change Failure");
     } catch (error) {
         if (error instanceof Error) {
             res.status(400).send(error.message);

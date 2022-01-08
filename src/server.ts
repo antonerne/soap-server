@@ -6,7 +6,7 @@ const app = express();
 
 connectToDatabase()
     .then((port) => {
-        app.use("/user", userRouter);
+        app.use("/api/v1/user", userRouter);
 
         app.listen(port, () => {
             console.log(`Server started at http://localhost:${port}`);

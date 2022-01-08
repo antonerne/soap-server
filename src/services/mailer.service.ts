@@ -6,9 +6,8 @@ export async function sendMail(message: ITokenMail ): Promise<mailer.SentMessage
     dotenv.config();
 
     const mailConfig = {
+        service: 'gmail',
         host: (process.env.SMTP_SERVER) ? process.env.SMTP_SERVER : "node-server",
-        port: (process.env.SMTP_PORT) ? Number(process.env.SMTP_PORT) : 25,
-        secure: true,
         auth: {
             user: (process.env.SMTP_USER) ? process.env.SMTP_USER : "anom",
             pass: (process.env.SMTP_PASSWORD) ? process.env.SMTP_PASSWORD : ""
