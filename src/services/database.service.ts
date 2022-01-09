@@ -26,6 +26,7 @@ export async function connectToDatabase(): Promise<number> {
     collections.entries = entriesCollection;
 
     const readingsCollection: mongo.Collection = db.collection("readings");
+    collections.readings = readingsCollection;
 
     console.log(`Successfully connected to database: ${db.databaseName}`);
 

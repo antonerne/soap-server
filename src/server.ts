@@ -1,12 +1,12 @@
 import { connectToDatabase } from "./services/database.service";
 import express from 'express';
-import { userRouter } from "./routes/user.router";
+import { mainRouter } from "./routes/main.router";
 
 const app = express();
 
 connectToDatabase()
     .then((port) => {
-        app.use("/api/v1/user", userRouter);
+        app.use("/api/v1", mainRouter);
 
         app.listen(port, () => {
             console.log(`Server started at http://localhost:${port}`);
