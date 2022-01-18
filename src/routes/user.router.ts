@@ -1,8 +1,8 @@
 // External Dependencies
 import express, {Request, Response} from 'express';
-import { ObjectId } from 'mongodb';
+import { ConnectionPoolClearedEvent, ObjectId } from 'mongodb';
 import { collections } from '../services/database.service';
-import { Authorization, IUser, LoginResponse, User, Token, ForgotPassword } from 'soap-model';
+import { Authorization, IUser, LoginResponse, User, Token, ForgotPassword, UserPlanRequest, IReadingPlan, ReadingPlan, UpdateUserPlanRequest } from 'soap-model';
 import * as jwt from 'jsonwebtoken';
 import { verifyToken as auth } from '../middleware/auth';
 import { ITokenMail } from '../model/mail';
@@ -60,7 +60,7 @@ userRouter.get("/:id", auth, async(req: Request, res: Response) => {
 
 
 
-// Post - two functions
+// Post - four functions
 // 1)  Create a new user
 userRouter.post("/", async(req: Request, res: Response) => {
     try {
@@ -259,6 +259,36 @@ userRouter.post("/forgot/", async(req: Request, res: Response) => {
     }
 });
 
+// post - sets the user's plan 
+userRouter.post("/plan", auth, async(req: Request, res: Response) => {
+    try {
+        const chg: UserPlanRequest = req.body as UserPlanRequest;
+        const query = { _id: chg.userID };
+        const tuser = (await collections.users?.findOne(query)) as IUser;
+        const user: User = new User(tuser);
+
+        const planQuery = { _id: chg.planID, reading_type: "readingplan" };
+        const tPlan = (await collections.readings?.findOne(planQuery)) as IReadingPlan;
+        const userPlan = new ReadingPlan(tPlan);
+
+        user.readingPlan = userPlan;
+        user.readingPlan.setDueDates(chg.start_date);
+
+        const result = (await collections.users?.updateOne(query, { $set: user}));
+        if (result && result.modifiedCount) {
+            res.status(200).send("User Reading Plan set");
+            return;
+        }
+        res.status(500).send("Error setting User Reading Plan")
+    } catch (error) {
+        if (error instanceof Error) {
+            res.status(400).send(error.message);
+            return
+        }
+        res.status(400).send(error);
+    }
+});
+
 // Put - forgot - changes user's password if the data passed (email, 
 // new password and authentication token) matches the data in the database
 // plus the token hasn't expired.
@@ -279,6 +309,33 @@ userRouter.put("/forgot/", async(req: Request, res: Response) => {
             }
         }
         res.status(500).send("Password Change Failure");
+    } catch (error) {
+        if (error instanceof Error) {
+            res.status(400).send(error.message);
+            return
+        }
+        res.status(400).send(error);
+    }
+});
+
+// put - plan - This changes the status of a particular date in the user's
+// reading plan.
+userRouter.put("/plan/", auth, async(req: Request, res: Response) => {
+    try {
+        const chg: UpdateUserPlanRequest = req.body as UpdateUserPlanRequest;
+        const query = { _id: chg.userID };
+        const tUser = (await collections.users?.findOne(query)) as IUser;
+        const user = new User(tUser);
+
+        if (user.readingPlan) {
+            let found = user.readingPlan.setComplete(chg.date_changed, chg.book, 
+                chg.chapter, chg.completed);
+            if (found) {
+                const result = await collections.users?.updateOne(
+                    query, { $set: user});
+            }
+        }
+        res.status(500).send("Plan not updated");
     } catch (error) {
         if (error instanceof Error) {
             res.status(400).send(error.message);
